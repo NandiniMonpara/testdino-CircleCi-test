@@ -11,16 +11,26 @@ jobs:
     steps:
       - checkout
       - run:
+          name: Prepare workspace directories
+          command: mkdir -p workspace/blob/$CIRCLE_NODE_INDEX
+      - run:
           name: Install dependencies
           command: npm ci
       - run:
           name: Run Playwright shard
-          command: npx playwright test --shard=$((CIRCLE_NODE_INDEX + 1))/$CIRCLE_NODE_TOTAL
+          command: |
+            set +e
+            npx playwright test --shard=$((CIRCLE_NODE_INDEX + 1))/$CIRCLE_NODE_TOTAL
+            status=$?
+            echo "$status" > /tmp/playwright-exit-code
+            exit 0
       - run:
           name: Collect blob report
+          when: always
           command: |
-            mkdir -p workspace/blob/$CIRCLE_NODE_INDEX
-            cp -R blob-report/. workspace/blob/$CIRCLE_NODE_INDEX/
+            if [ -d blob-report ]; then
+              cp -R blob-report/. workspace/blob/$CIRCLE_NODE_INDEX/
+            fi
       - persist_to_workspace:
           root: workspace
           paths:
@@ -30,6 +40,15 @@ jobs:
           destination: test-results
       - store_test_results:
           path: test-results
+      - run:
+          name: Fail shard if Playwright failed
+          when: always
+          command: |
+            status=0
+            if [ -f /tmp/playwright-exit-code ]; then
+              status=$(cat /tmp/playwright-exit-code)
+            fi
+            exit "$status"
 
   merge-and-upload:
     docker:
@@ -51,8 +70,7 @@ jobs:
             npx playwright merge-reports --reporter=json workspace/blob > playwright-report/report.json
       - run:
           name: Upload results to TestDino
-          command: npx tdpw upload ./playwright-report --token="$TESTDINO_TOKEN"
-          continue-on-error: true
+          command: npx tdpw upload ./playwright-report --token="${TESTDINO_TOKEN:-$TESTDINO_API_KEY}"
       - store_artifacts:
           path: playwright-report
           destination: playwright-report
@@ -63,4 +81,7 @@ workflows:
       - test
       - merge-and-upload:
           requires:
-            - test
+            - test:
+                - success
+                - failed
+                - canceled
