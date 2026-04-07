@@ -12,29 +12,21 @@ jobs:
       - checkout
 
       - run:
-          name: Prepare workspace directories
-          command: mkdir -p workspace/blob/$CIRCLE_NODE_INDEX
-
-      - run:
-          name: Install dependencies
-          command: npm ci
-
-      - run:
           name: Run Playwright shard
           command: |
+            mkdir -p workspace/blob/$CIRCLE_NODE_INDEX
+            npm ci
+
             set +e
             npx playwright test --shard=$((CIRCLE_NODE_INDEX + 1))/$CIRCLE_NODE_TOTAL
-            status=$?
-            echo "$status" > /tmp/playwright-exit-code
-            exit 0
+            TEST_EXIT_CODE=$?
 
-      - run:
-          name: Collect blob report
-          when: always
-          command: |
             if [ -d blob-report ]; then
               cp -R blob-report/. workspace/blob/$CIRCLE_NODE_INDEX/
             fi
+
+            echo $TEST_EXIT_CODE > /tmp/test-exit-code
+            exit 0
 
       - persist_to_workspace:
           root: workspace
@@ -49,14 +41,10 @@ jobs:
           path: test-results
 
       - run:
-          name: Fail shard if Playwright failed
+          name: Mark shard failed if tests failed
           when: always
           command: |
-            status=0
-            if [ -f /tmp/playwright-exit-code ]; then
-              status=$(cat /tmp/playwright-exit-code)
-            fi
-            exit "$status"
+            exit $(cat /tmp/test-exit-code)
 
   merge-and-upload:
     docker:
@@ -75,14 +63,14 @@ jobs:
           command: npm ci
 
       - run:
-          name: Merge Playwright reports to JSON
+          name: Merge reports
           command: |
             mkdir -p merged-blob-reports playwright-report
             find workspace/blob -type f -name "*.zip" -exec cp {} merged-blob-reports/ \;
             npx playwright merge-reports --reporter=json merged-blob-reports > playwright-report/report.json
 
       - run:
-          name: Upload results to TestDino
+          name: Upload to TestDino
           command: npx tdpw upload ./playwright-report --token="$TESTDINO_TOKEN"
 
       - store_artifacts:
