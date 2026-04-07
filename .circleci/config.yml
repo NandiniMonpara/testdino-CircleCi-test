@@ -10,12 +10,15 @@ jobs:
       CI: "true"
     steps:
       - checkout
+
       - run:
           name: Prepare workspace directories
           command: mkdir -p workspace/blob/$CIRCLE_NODE_INDEX
+
       - run:
           name: Install dependencies
           command: npm ci
+
       - run:
           name: Run Playwright shard
           command: |
@@ -24,6 +27,7 @@ jobs:
             status=$?
             echo "$status" > /tmp/playwright-exit-code
             exit 0
+
       - run:
           name: Collect blob report
           when: always
@@ -31,15 +35,19 @@ jobs:
             if [ -d blob-report ]; then
               cp -R blob-report/. workspace/blob/$CIRCLE_NODE_INDEX/
             fi
+
       - persist_to_workspace:
           root: workspace
           paths:
             - blob
+
       - store_artifacts:
           path: test-results
           destination: test-results
+
       - store_test_results:
           path: test-results
+
       - run:
           name: Fail shard if Playwright failed
           when: always
@@ -58,19 +66,25 @@ jobs:
       CI: "true"
     steps:
       - checkout
+
       - attach_workspace:
           at: workspace
+
       - run:
           name: Install dependencies
           command: npm ci
+
       - run:
           name: Merge Playwright reports to JSON
           command: |
-            mkdir -p playwright-report
-            npx playwright merge-reports --reporter=json workspace/blob > playwright-report/report.json
+            mkdir -p merged-blob-reports playwright-report
+            find workspace/blob -type f -name "*.zip" -exec cp {} merged-blob-reports/ \;
+            npx playwright merge-reports --reporter=json merged-blob-reports > playwright-report/report.json
+
       - run:
           name: Upload results to TestDino
-          command: npx tdpw upload ./playwright-report --token="${TESTDINO_TOKEN:-$TESTDINO_API_KEY}"
+          command: npx tdpw upload ./playwright-report --token="$TESTDINO_TOKEN"
+
       - store_artifacts:
           path: playwright-report
           destination: playwright-report
